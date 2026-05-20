@@ -3,6 +3,7 @@ import json
 from core.dna_collector import DNACollector
 from core.vault import VaultManager
 from core.lead_hunter import LeadHunter
+from core.strategy_brain import StrategyBrain
 
 class FindClient:
     def __init__(self):
@@ -55,7 +56,18 @@ class FindClient:
         if confirm.lower() == 'y':
             print("Hunting leads... generating strategy... please wait.")
             # This will connect to Modules 3 & 4 in future updates
-            print("Success! Excel strategy generated: data/strategy.xlsx")
+            # 3. Strategy Generation
+        brain = StrategyBrain("data/company_dna.json")
+        excel_path = brain.generate_sequence(leads)
+        
+        print(f"\n✅ STRATEGY GENERATED: {excel_path}")
+        print("Please review the Excel sheet. If approved, we proceed to the Drip-Sender.")
+        
+        approval = input("Approved? (y/n): ")
+        if approval.lower() == 'y':
+            print("Scheduling emails in Module 4... (Pending implementation)")
+        else:
+            print("Strategy rejected. Please tweak the Excel file manually.")
 
 if __name__ == "__main__":
     agent = FindClient()

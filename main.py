@@ -2,6 +2,7 @@ import os
 import json
 from core.dna_collector import DNACollector
 from core.vault import VaultManager
+from core.lead_hunter import LeadHunter
 
 class FindClient:
     def __init__(self):
@@ -41,9 +42,14 @@ class FindClient:
         count = input("How many leads? ")
         platform = input("Platform (GoogleMaps/LinkedIn/etc): ")
         
-        print("\nCalculating Apify credits and time...")
-        # Mock calculation
-        print(f"Est. Cost: 0.5 Credits | Time: 8 mins")
+        apify_key = self.vault.get_key("apify_key")
+        hunter = LeadHunter(apify_key)
+        actor_id = "apify/google-maps-scraper" if "google" in platform.lower() else "apify/linkedin-scraper"
+        raw_leads = hunter.run_actor(actor_id, {"search": target, "maxItems": int(count)})
+        leads = hunter.clean_leads(raw_leads)
+        print(f"Found {len(leads)} viable leads.")
+        with open("data/raw_leads.json", "w") as f:
+            json.dump(leads, f)
         
         confirm = input("Proceed with hunt? (y/n): ")
         if confirm.lower() == 'y':

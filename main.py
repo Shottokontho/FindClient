@@ -1,76 +1,91 @@
 import os
 import json
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from core.dna_collector import DNACollector
 from core.vault import VaultManager
 from core.lead_hunter import LeadHunter
 from core.strategy_brain import StrategyBrain
 from core.drip_sender import DripSender
+from core.crm_manager import CRMManager
 
-class FindClient:
+console = Console()
+
+class FindClientApp:
     def __init__(self):
         self.config_path = "config.json"
         self.dna_path = "data/company_dna.json"
         self.vault = VaultManager(self.config_path)
         self.dna = DNACollector(self.dna_path)
+        self.crm = CRMManager()
+
+    def header(self, text):
+        console.print(Panel(f"[bold blue]{text}[/bold blue]", expand=False))
 
     def setup(self):
-        print("\n--- [ ONBOARDING MODE ] ---")
+        self.header("SYSTEM ONBOARDING")
         if not self.dna.exists():
-            print("Company DNA not found. Let's build it.")
-            choice = input("Enter (1) PDF/Doc Path or (2) Website URL: ")
+            console.print("[yellow]Company DNA missing.[/yellow]")
+            choice = input(" (1) PDF/Doc Path or (2) Website URL: ")
             if choice == "1":
-                path = input("File Path: ")
-                self.dna.process_file(path)
+                self.dna.process_file(input("Path: "))
             else:
-                url = input("Website URL: ")
-                self.dna.process_url(url)
+                self.dna.process_url(input("URL: "))
         
         if not self.vault.is_configured():
-            printP("\n--- [ CREDENTIAL VAULT ] ---")
-            apify_key = input("Apify API Key: ")
-            email_user = input("Gmail/Email User: ")
-            email_pass = input("App Password/API Key: ")
-            self.vault.save(apify_key, email_user, email_pass)
+            console.print("[yellow]Vault not configured.[/yellow]")
+            self.vault.save(input("Apify Key: "), input("Email: "), input("Pass: "))
         
-        print("\n✅ Setup Complete. System is now Persistent.")
+        console.print("[green]✅ System Ready.[/green]")
 
     def run(self):
-        print("\n--- [ HUNT MODE ] ---")
-        target = input("Who do you want to reach? (or press Enter to auto-predict): ")
+        self.header("FINDCLIENT HUNT MODE")
+        
+        target = input("🎯 Target Persona (or Enter for Auto-Predict): ")
         if not target:
             target = self.dna.predict_target()
-            print(f"Predicted Target: {target}")
+            console.print(f"[cyan]AI Prediction: {target}[/cyan]")
             
-        count = input("How many leads? ")
-        platform = input("Platform (GoogleMaps/LinkedIn/etc): ")
+        count_input = input("🔢 Lead Count: ")
+        count = int(count_input) if count_input.isdigit() else 10
+        platform = input("🌐 Platform (Google/LinkedIn): ")
+
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
+            task = progress.add_task(description="Hunting leads...", total=None)
+            
+            apify_key = self.vault.get_key("apify_key")
+            hunter = LeadHunter(apify_key)
+            actor_id = "apify/google-maps-scraper" if "google" in platform.lower() else "apify/linkedin-scraper"
+            
+            raw_leads = hunter.run_actor(actor_id, {"search": target, "maxItems": count})
+            leads = hunter.clean_leads(raw_leads)
+            progress.update(task, completed=True)
+
+        self.crm.add_leads(leads)
         
-        apify_key = self.vault.get_key("apify_key")
-        hunter = LeadHunter(apify_key)
-        actor_id = "apify/google-maps-scraper" if "google" in platform.lower() else "apify/linkedin-scraper"
-        raw_leads = hunter.run_actor(actor_id, {"search": target, "maxItems": int(count)})
-        leads = hunter.clean_leads(raw_leads)
-        print(f"Found {len(leads)} viable leads.")
-        with open("data/raw_leads.json", "w") as f:
-            json.dump(leads, f)
+        table = Table(title="Hunted Leads")
+        table.add_column("Name", style="cyan")
+        table.add_column("Email", style="magenta")
+        for l in leads[:5]: table.add_row(l["name"], l["email"])
+        console.print(table)
+
+        brain = StrategyBrain(self.dna_path)
+        path = brain.generate_sequence(leads)
+        console.print(f"\n[bold green]Strategy Generated: {path}[/bold green]")
         
-        confirm = input("Proceed with hunt? (y/n): ")
-        if confirm.lower() == 'y':
-            print("Hunting leads... generating strategy... please wait.")
-            # This will connect to Modules 3 & 4 in future updates
-            # 3. Strategy Generation
-        brain = StrategyBrain("data/company_dna.json")
-        excel_path = brain.generate_sequence(leads)
-        
-        print(f"\n✅ STRATEGY GENERATED: {excel_path}")
-        print("Please review the Excel sheet. If approved, we proceed to the Drip-Sender.")
-        
-        approval = input("Approved? (y/n): ")
-        if approval.lower() == 'y':
-            print("Scheduling emails in Module 4... (Pending implementation)")
-        else:
-            print("Strategy rejected. Please tweak the Excel file manually.")
+        if input("Approve and Drip? (y/n): ").lower() == 'y':
+            limit_input = input("Max emails/day: ")
+            limit = int(limit_input) if limit_input.isdigit() else 20
+            sender = DripSender(self.vault.get_key("email"), self.vault.get_key("password"))
+            sender.execute_drip(path, limit, (15, 30))
+            
+            for lead in leads:
+                self.crm.update_status(lead["email"], "CONTACTED")
+            console.print("[bold green]Drip Sequence Live![/bold green]")
 
 if __name__ == "__main__":
-    agent = FindClient()
-    agent.setup()
-    agent.run()
+    app = FindClientApp()
+    app.setup()
+    app.run()

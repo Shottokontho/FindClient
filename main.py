@@ -4,6 +4,7 @@ from core.dna_collector import DNACollector
 from core.vault import VaultManager
 from core.lead_hunter import LeadHunter
 from core.strategy_brain import StrategyBrain
+from core.drip_sender import DripSender
 
 class FindClient:
     def __init__(self):
